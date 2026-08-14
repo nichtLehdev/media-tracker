@@ -1,0 +1,33 @@
+{
+  "name": "media-tracker",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "pnpm -r test",
+    "dev:web": "pnpm --filter @media-tracker/web dev",
+    "dev:worker": "pnpm --filter @media-tracker/worker dev",
+    "db:generate": "pnpm --filter @media-tracker/db generate",
+    "db:migrate": "pnpm --filter @media-tracker/db migrate",
+    "db:studio": "pnpm --filter @media-tracker/db studio",
+    "db:seed": "pnpm --filter @media-tracker/db seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "15.5.23",
+    "@types/node": "^22.15.3",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.2.4"
+  }
+}

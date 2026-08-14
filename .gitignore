@@ -1,0 +1,19 @@
+node_modules/
+.pnpm-store/
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+# plugin build output
+plugin/**/bin/
+plugin/**/obj/
+
+coverage/
+.DS_Store
+*.log

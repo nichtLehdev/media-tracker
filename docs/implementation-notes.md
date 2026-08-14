@@ -1,0 +1,206 @@
+# Implementation notes — M1, M2 (in progress)
+
+Everything here is a decision made while building M1 that the spec did not
+already settle, or a place where the code departs from it. Section numbers refer
+to `SPEC.md`.
+
+## Additions to the spec
+
+### `registration_codes` table
+
+§6.1 describes one-time registration codes but §5 has no table for them. Added:
+
+```
+registration_codes(id, code_hash, owner_user_id, expires_at, used_at, server_id, created_at)
+```
+
+The code is stored as a SHA-256 hash and looked up by hash, so a database read
+does not hand out live codes. A code is 8 characters from a 32-symbol alphabet —
+40 bits — so `POST /api/v1/servers/register` is rate limited to 10/minute per
+address as well. Claiming is a conditional `UPDATE ... WHERE used_at IS NULL`
+inside the registration transaction, which makes it single-use even if two
+plugins race the same code.
+
+### `POST /api/v1/accounts/report` and `POST /api/v1/accounts/invite`
+
+§6 defines no endpoint for the plugin to report its local Jellyfin users, but
+§7.5 requires the plugin's config page to render "local Jellyfin users with their
+link state", and §6.2 requires an account row to exist so unlinked users appear
+in the owner's linking UI. Both are in `packages/contracts/src/accounts.ts`.
+
+`report` is a report, never an assertion of identity (C2). Its `ON CONFLICT`
+clause touches only `jellyfin_username`, so a server cannot advance, reset, or
+reassign a link by re-reporting — only the member accepting an invite moves
+`link_state`. There is a test for exactly this in the M1 acceptance script.
+
+### Server bearer token shape
+
+§6.1 says "opaque-64-char". The token is `<server-id>.<32 random bytes>`, both
+base64url. The id prefix is not a secret; it exists so a request resolves to one
+row before the argon2 verify, instead of verifying against every server's hash.
+Successful verifications are cached for five minutes against a SHA-256 of the
+presented token, because argon2id costs tens of milliseconds and the plugin hits
+ingest continuously. The cached entry is still re-checked against `revoked_at`
+on every request, so revocation takes effect immediately.
+
+## Deviations
+
+### Show metadata refreshes every 7 days, not 30
+
+§9 asks for a 30-day refresh dropping to 7 for shows still airing. §5.2 has
+nowhere to record airing status, so every show refreshes on the 7-day cadence and
+movies keep 30 days. That is the conservative direction — `episode_count` stays
+correct for progress calculations — at the cost of one TMDB call per show per
+week. Adding a `status` column to `media_items` would recover the original
+behaviour.
+
+### `media_items.episode_count` is TMDB's `number_of_episodes`
+
+§10 wants watch status against *aired* episodes. `number_of_episodes` includes
+episodes announced but not yet aired, so it will read slightly high for a show
+mid-season. `episodes.air_date` is populated whenever a season is fetched, so the
+M4 watch-status view should count `episodes` with `air_date <= now()` and treat
+`episode_count` as a fallback for shows whose seasons have never been pulled.
+
+### Guild membership is verified at sign-in only
+
+§15 says to verify guild membership at login, which is what happens. Because
+sessions are JWTs, a member removed from the guild keeps access until their
+session expires; `session.maxAge` is set to 7 days to bound that. Closing the
+window entirely needs either the Discord OAuth token retained for periodic
+re-checks, or a bot token to query membership server-side. Neither is in the §4
+configuration, so it is left open deliberately — see the open question below.
+
+### `SKIP_ENV_VALIDATION`
+
+`next build` imports server modules to collect page data, so a Docker build layer
+would otherwise need the full production secret set just to compile. The flag
+bypasses validation for that, and only that; at runtime the parse is strict and a
+misconfigured deploy fails at boot, per §4.
+
+## Things M2 must not skip
+
+- ~~Write the mass-removal quarantine test before the delete path~~ (§7.6, §18
+  M2 acceptance) — **done**, before any delete path existed. `library_sync_quarantine`
+  landed in migration `0001`. See the M2 section below.
+- `library_entries_identity` (`server_id`, `jellyfin_item_id`) already exists so
+  incremental removals can find their row without re-resolving metadata.
+- `watch_events.is_rewatch` is computed at insert, not stored by the plugin.
+- `playback_sessions` cleanup is a periodic worker job driven by `expires_at`,
+  not by stop events.
+
+## Open questions still outstanding
+
+The spec's §19 list, with M1's answers where M1 produced one:
+
+1. **Discord bot language and repo** — still unanswered; blocks M3's §6.4 client.
+2. **Multi-user personal servers** — the linking UI already makes "don't link
+   this one" the default: reported accounts sit at `unlinked` and nothing is
+   attributed until a member accepts an invite. No further work needed unless the
+   owner wants bulk invites.
+3. **Manual watch entry** — schema supports `source = 'manual'`; no UI built.
+4. **Screening reminders** — untouched, M6.
+5. ~~**`playback_sessions` retention**~~ — **answered**: archive a summary row
+   on expiry. See the M2 section below.
+
+Additionally, from M1:
+
+6. **Session-length vs. guild-removal window** — see the deviation above. Worth
+   deciding whether 7 days is acceptable or whether a bot token should be added
+   to §4.
+
+---
+
+# M2
+
+## The mass-removal safety valve (§7.6)
+
+Written test-first, as §18 requires. `apps/web/src/server/library-quarantine.ts`
+with `library-quarantine.test.ts` beside it; the suite was checked against three
+mutations (threshold cap raised, valve disabled, deltas allowed to advance the
+streak) and catches all three.
+
+Decisions the spec left open:
+
+### Only snapshots advance the auto-release streak
+
+§7.6 says "three consecutive full snapshots at least 6 hours apart", so deltas
+are counted as sightings but never advance `occurrences`. `last_seen_at` tracks
+the last *counted* sighting rather than every proposal: deltas arrive every
+minute or two, and updating the timestamp on each one would keep resetting the
+six-hour clock so the streak could never accumulate.
+
+### A snapshot proposing a different set dismisses the old one
+
+The snapshot is the authority. If it stops proposing a removal set, those items
+are back, so the open row is resolved as `dismissed` rather than left to bank
+its third sighting and auto-apply later. Without this a flapping mount could
+alternate between two sets and eventually release one it no longer reports.
+
+### Ids that are no longer in the library do not count toward the threshold
+
+A re-sent delta, or a removal for an item already gone, would otherwise inflate
+the batch over the threshold and quarantine a removal of two entries. Proposed
+ids are resolved against `library_entries` first and the count is taken from
+what actually matched.
+
+### Threshold is exclusive, with a floor of 5
+
+`max(5, min(floor(0.1 × entries), 200))`, and removing *exactly* that many is
+allowed. §7.6 specifies only the two ceilings; the floor is an addition, agreed
+before the delta path was written.
+
+Why: the proportional half of the rule is aggressive on a small library — at 30
+entries a pure 10% rule flags four removals, so a member tidying up gets a
+quarantine notice. The risk is not the notice, it is that an owner who sees it
+weekly learns to press Apply without reading, which is exactly the reflex the
+guard depends on not existing. §0 puts §7.6 in the "follow, but flag what turns
+out to be wrong" range rather than the binding sections, so this is a flagged
+adjustment rather than a deviation from a binding rule. A wipe of a small
+library is still caught: 30 of 30 is well over the floor.
+
+## Session expiry and archiving (§5.3, §19 q5)
+
+Open question 5 is answered: **archive a summary row, then delete**. The
+retrofit was the deciding factor — once a session row is deleted the time it
+represents is gone, so "hours watched per week" could only ever have covered
+the period after the decision, and the decision could not be deferred past M2.
+
+`playback_session_archive` (migration `0002`, not in §5) takes one row per
+finished session: user, server, media, episode, device, `started_at`,
+`ended_at`, final `position_sec`, `runtime_sec`. Deliberately *not* the
+heartbeats — position updates land every 30 seconds per session and none of
+that survives aggregation.
+
+- `ended_at` is the last heartbeat (`updated_at`), not `expires_at`. The
+  two-minute TTL is slack; counting it would inflate every session by two
+  minutes.
+- The archive row reuses the expired session's id, so a replayed drain
+  conflicts with itself instead of double counting.
+- The archive's `server_id` does **not** cascade, matching `watch_events`:
+  disowning a server must not silently rewrite a member's history (§8).
+- `apps/worker/src/jobs/session-expiry.ts`, on a one-minute pg-boss cron. With
+  a two-minute TTL a session lingers in "now playing" for at most three minutes
+  after a server goes quiet.
+
+## Test infrastructure
+
+There was none before M2. `packages/db/src/testing.ts` (`@media-tracker/db/testing`)
+creates a throwaway database per test file, applies the real migrations to it —
+not `drizzle-kit push`, so tests exercise the SQL production runs — and drops it
+afterwards. Integration tests skip rather than fail when `DATABASE_URL` is
+absent, so `pnpm test` works on a machine with no Postgres.
+
+`next lint` was replaced with the ESLint CLI and a flat config at the repo root:
+it is deprecated in Next 15, removed in Next 16, and could not lint `packages/`
+at all.
+
+## `.env` is only loaded by Next
+
+Worth knowing, because it bit three separate entry points: the `.env` symlinks
+make the file *present*, but only `next` reads one on its own. `drizzle-kit`,
+`tsx`, and `vitest` all need to be told. So `packages/db` loads it in
+`drizzle.config.ts`, the worker's `dev`/`start` scripts pass
+`--env-file-if-exists=.env`, and `vitest.shared.ts` loads it for tests. The
+`-if-exists` form matters: production containers get environment variables and
+ship no file, and must not fail on its absence.
