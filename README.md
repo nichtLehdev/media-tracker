@@ -132,23 +132,29 @@ That writes `plugin/dist/tracker_<version>.zip` and prints its checksum. To
 install manually, unzip it into Jellyfin's `plugins/Tracker/` directory and
 restart.
 
-For repository install, publish it instead:
+For repository install, GitHub serves both halves — the manifest from the repo,
+the zip from a release:
 
 ```bash
 cd plugin && ./build-plugin.sh 1.0.0.0 --publish
 ```
 
-That copies the zip to `apps/web/public/plugin/` and records it in
-`apps/web/public/plugin/manifest.json`, which is served at
-`$PUBLIC_BASE_URL/plugin/manifest.json` — the URL a member adds once under
-Dashboard → Plugins → Repositories. Jellyfin verifies the download against the
-checksum in the manifest, so the two are always written together rather than
-edited by hand. Override the advertised host with
-`BASE_URL=https://... ./build-plugin.sh`.
+```bash
+gh release create v1.0.0.0 plugin/dist/tracker_1.0.0.0.zip
+```
 
-The manifest is committed; the zips are not, because each is about 6MB and they
-are build artifacts. **Run `--publish` before building the Docker image**, or
-the manifest will advertise a URL that 404s.
+`--publish` records the release in `plugin/manifest.json` with the checksum
+Jellyfin verifies the download against; the `gh release` uploads the file that
+checksum belongs to. Both are needed, and the manifest only goes live once it
+is pushed. Members then add this URL once under Dashboard → Plugins →
+Repositories:
+
+```
+https://raw.githubusercontent.com/nichtLehdev/media-tracker/main/plugin/manifest.json
+```
+
+The zips are not committed — they are ~6MB build artifacts and live on the
+release. Override the release host with `RELEASES=... ./build-plugin.sh`.
 
 Then, in Jellyfin's plugin settings: enter the tracker URL, paste a
 registration code generated on `/settings/servers`, and press Register. The

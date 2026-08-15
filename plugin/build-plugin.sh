@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
 # Packages the plugin for installation (S7.8).
 #
-# Without --publish this only builds dist/tracker_<version>.zip and prints its
-# checksum. With --publish it also copies the zip to where the web app serves
-# it and records it in the manifest, which is the pair Jellyfin needs: it
-# verifies the download against the checksum in the manifest.
+# The manifest and the zips are both served by GitHub, not by the web app:
+# manifest.json is read straight from the repo, and each zip is a GitHub
+# release asset. So --publish only records the release here; uploading the zip
+# to the matching tag is a separate step (see README).
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 VERSION="${1:-1.0.0.0}"
 PUBLISH="${2:-}"
-# Absolute, because Jellyfin fetches the manifest and the zip separately.
-BASE_URL="${BASE_URL:-https://tracker.lehdev.de}"
+# Where Jellyfin will download the zip from. Must match the tag the asset is
+# uploaded to, or the install fails after the manifest resolves.
+RELEASES="${RELEASES:-https://github.com/nichtLehdev/media-tracker/releases/download}"
 
 OUT="dist"
 STAGE="$OUT/stage"
-SERVED="../apps/web/public/plugin"
+MANIFEST="manifest.json"
 
 rm -rf "$OUT"
 mkdir -p "$STAGE"
@@ -55,24 +56,26 @@ rm -rf "$STAGE"
 
 CHECKSUM=$(md5 -q "$OUT/tracker_${VERSION}.zip" 2>/dev/null \
   || md5sum "$OUT/tracker_${VERSION}.zip" | cut -d' ' -f1)
+SOURCE_URL="${RELEASES}/v${VERSION}/tracker_${VERSION}.zip"
 
 echo "built  $OUT/tracker_${VERSION}.zip"
 echo "md5    $CHECKSUM"
 
 if [ "$PUBLISH" != "--publish" ]; then
   echo
-  echo "Not published. Re-run with --publish to copy the zip into"
-  echo "apps/web/public/plugin/ and record it in manifest.json."
+  echo "Not published. Re-run with --publish to record it in manifest.json."
   exit 0
 fi
 
-mkdir -p "$SERVED"
-cp "$OUT/tracker_${VERSION}.zip" "$SERVED/"
 python3 update-manifest.py \
-  "$SERVED/manifest.json" \
-  "$VERSION" \
-  "$CHECKSUM" \
-  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  "$BASE_URL"
+  "$MANIFEST" "$VERSION" "$CHECKSUM" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SOURCE_URL"
 
-echo "published to apps/web/public/plugin/"
+cat <<NEXT
+
+Now publish the asset, or the manifest points at a 404:
+
+  gh release create v${VERSION} ${OUT}/tracker_${VERSION}.zip
+
+Then commit manifest.json and push. Jellyfin reads the manifest from the
+repo, so it only sees the release once that push lands.
+NEXT

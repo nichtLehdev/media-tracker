@@ -11,9 +11,9 @@
         "version": "1.0.0.0",
         "changelog": "First release: watch events, library sync, media profiles.",
         "targetAbi": "10.10.0.0",
-        "sourceUrl": "https://tracker.lehdev.de/plugin/tracker_1.0.0.0.zip",
-        "checksum": "caa9c1249fc68141c5584725c5fcfe1f",
-        "timestamp": "2026-08-15T10:26:06Z"
+        "sourceUrl": "https://github.com/nichtLehdev/media-tracker/releases/download/v1.0.0.0/tracker_1.0.0.0.zip",
+        "checksum": "118a38719285124145b7194980237e68",
+        "timestamp": "2026-08-15T10:29:54Z"
       }
     ]
   }

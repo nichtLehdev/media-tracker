@@ -13,10 +13,9 @@ build/
 # plugin build output
 plugin/**/bin/
 plugin/**/obj/
-# Release zips are build artifacts, ~6MB each. The manifest beside them IS
-# committed; run plugin/build-plugin.sh --publish before deploying so the
-# sourceUrl it advertises actually resolves.
-apps/web/public/plugin/*.zip
+# Release zips are build artifacts, ~6MB each, and are uploaded to GitHub
+# releases rather than committed. plugin/manifest.json IS committed -- Jellyfin
+# reads it straight from the repo.
 
 coverage/
 .DS_Store

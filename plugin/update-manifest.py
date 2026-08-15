@@ -1,4 +1,4 @@
-"""Adds or replaces a release in the served plugin manifest (S7.8).
+"""Adds or replaces a release in plugin/manifest.json (S7.8).
 
 Rewriting JSON from shell is a trap, so the manifest has one owner: this.
 """
@@ -12,7 +12,7 @@ path = Path(sys.argv[1])
 version = sys.argv[2]
 checksum = sys.argv[3]
 timestamp = sys.argv[4]
-base_url = sys.argv[5].rstrip("/")
+source_url = sys.argv[5]
 
 manifest = json.loads(path.read_text())
 versions = manifest[0]["versions"]
@@ -21,8 +21,7 @@ entry = {
     "version": version,
     "changelog": "",
     "targetAbi": os.environ.get("TARGET_ABI", "10.10.0.0"),
-    # Absolute: Jellyfin fetches the manifest and the zip as separate requests.
-    "sourceUrl": f"{base_url}/plugin/tracker_{version}.zip",
+    "sourceUrl": source_url,
     "checksum": checksum,
     "timestamp": timestamp,
 }

@@ -334,6 +334,18 @@ idempotent, so this should be fine — but if the plugin ever fails to load with
 a SQLite type or native-library conflict, the fix is to mark the package
 reference `ExcludeAssets="runtime"` and rely on the host's copy.
 
+### Distribution is GitHub's job, not the app's
+
+§7.8 says to serve `manifest.json` from the Next.js app. It is a committed file
+at `plugin/manifest.json` instead, read straight from the public repo, with the
+zips as GitHub release assets. The app serves no static plugin assets at all.
+
+That keeps ~6MB build artifacts out of both the repo and the Docker image, and
+removes the failure mode the app-served version had: a manifest whose
+`sourceUrl` resolved only if a publish step had been run before the image was
+built. The trade-off is that the manifest is only live once it is pushed, so
+`--publish` and the release upload have to land together.
+
 ### The snapshot bypasses the outbound queue
 
 Deltas go through the queue (§7.4 says so explicitly). The full snapshot does
