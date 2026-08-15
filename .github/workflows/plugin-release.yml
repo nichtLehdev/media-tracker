@@ -1,0 +1,139 @@
+# Builds the Jellyfin plugin, publishes the zip as a release asset, and records
+# it in plugin/manifest.json (S7.8).
+#
+# Packaging and manifest are one workflow on purpose. The manifest carries the
+# checksum Jellyfin verifies the download against, so it has to describe the
+# exact artifact that was uploaded -- splitting them lets the two drift, and
+# the symptom is an install that fails verification for every member at once.
+name: Plugin release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Plugin version, four parts (e.g. 1.0.1.0)'
+        required: true
+        type: string
+      changelog:
+        description: 'Release notes (optional)'
+        required: false
+        type: string
+
+concurrency:
+  group: plugin-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          # The manifest is committed back at the end, so we need a real branch
+          # rather than the detached checkout a tag would give.
+          fetch-depth: 0
+
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Jellyfin expects a four-part version, got '$VERSION'"
+            exit 1
+          fi
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Release v$VERSION already exists. Bump the version."
+            exit 1
+          fi
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # 8 for the net8.0 targeting pack the plugin builds against, 10 for
+          # the runtime the test project needs.
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Test
+        working-directory: plugin
+        run: dotnet test --nologo
+
+      - name: Build and record the release
+        working-directory: plugin
+        env:
+          VERSION: ${{ inputs.version }}
+        run: ./build-plugin.sh "$VERSION" --publish
+
+      - name: Publish the asset
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANGELOG: ${{ inputs.changelog }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" \
+            "plugin/dist/tracker_$VERSION.zip" \
+            --title "Plugin $VERSION" \
+            --notes "${CHANGELOG:-No release notes.}"
+
+      - name: Verify the published asset matches the manifest
+        env:
+          VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          # The whole point of the checksum is that Jellyfin refuses a mismatch,
+          # so prove it end to end rather than trusting the build.
+          expected=$(python3 - <<'PY'
+          import json, os
+          manifest = json.load(open('plugin/manifest.json'))
+          entry = next(
+              v for v in manifest[0]['versions']
+              if v['version'] == os.environ['VERSION']
+          )
+          print(entry['checksum'])
+          PY
+          )
+          curl -sSL -o /tmp/published.zip \
+            "https://github.com/$REPO/releases/download/v$VERSION/tracker_$VERSION.zip"
+          actual=$(md5sum /tmp/published.zip | cut -d' ' -f1)
+          if [ "$expected" != "$actual" ]; then
+            echo "::error::Checksum mismatch. Manifest says $expected, asset is $actual"
+            exit 1
+          fi
+          echo "checksum verified: $actual"
+
+      - name: Set the changelog
+        if: inputs.changelog != ''
+        env:
+          VERSION: ${{ inputs.version }}
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          path = Path('plugin/manifest.json')
+          manifest = json.loads(path.read_text())
+          for entry in manifest[0]['versions']:
+              if entry['version'] == os.environ['VERSION']:
+                  entry['changelog'] = os.environ['CHANGELOG']
+          path.write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
+      - name: Commit the manifest
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add plugin/manifest.json
+          # Jellyfin reads the manifest from the repo, so the release is only
+          # visible to members once this push lands.
+          git commit -m "Plugin $VERSION"
+          git push origin main

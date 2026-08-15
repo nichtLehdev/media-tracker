@@ -184,6 +184,30 @@ pnpm db:generate
 Review the generated SQL in `packages/db/drizzle/` before applying it. Migrations
 run as a one-shot init container in production and are never applied on app boot.
 
+## Releasing
+
+Two GitHub Actions do the work; both are manual (`workflow_dispatch`) except
+the image build, which also runs on pushes to `main`.
+
+**Plugin release.** Actions → *Plugin release* → Run workflow, with a four-part
+version. It tests, builds, publishes the zip as release `v<version>`, records
+it in `plugin/manifest.json`, verifies the published asset against the checksum
+it recorded, and pushes the manifest back to `main`. Members see the release
+when that push lands, since Jellyfin reads the manifest from the repo.
+
+Packaging and the manifest are one workflow deliberately: the manifest carries
+the checksum Jellyfin verifies the download against, so it has to describe the
+exact artifact that was uploaded.
+
+**Web image.** Pushes to `main` that touch `apps/`, `packages/` or `docker/`
+build and publish `ghcr.io/nichtlehdev/media-tracker:latest` (plus a
+`sha-<commit>` tag). Tests gate the build, so a failing suite never reaches the
+registry. Run it manually to add a version tag.
+
+To consume it from your own compose stack, replace the `build:` blocks with
+`image: ghcr.io/nichtlehdev/media-tracker:latest` — one image, three commands,
+as `docker/compose.yaml` already shows.
+
 ## Deployment
 
 `docker/compose.yaml` builds one image and runs it three ways — `migrate`, `web`,
