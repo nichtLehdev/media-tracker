@@ -183,6 +183,53 @@ that survives aggregation.
   a two-minute TTL a session lingers in "now playing" for at most three minutes
   after a server goes quiet.
 
+## Ingest (§6.2)
+
+`apps/web/src/server/ingest.ts` behind `POST /api/v1/ingest`. The resolver from
+M1 already covered §9, so this is the identity, idempotency and session layer.
+Decisions the spec left open:
+
+### `unlinked_account` is a **permanent** rejection
+
+The retry contract says the plugin may only drop events the tracker accepted or
+rejected as permanent, so this determines whether pre-link watches are banked
+and flushed the moment a member accepts an invite. They are not. §8 is
+two-sided consent, and replaying watches from before the member agreed would
+make that consent retroactive. Losing them is the intended behaviour, not a
+limitation.
+
+### `unmatched` is **not** permanent
+
+The opposite call, for the opposite reason. §9 says resolving an unmatched item
+should backfill the events pending on it — but `watch_events.media_item_id` is
+NOT NULL, so the tracker has nowhere to hold one. The plugin's own queue is the
+only place the event still exists, so it keeps it and retries; an admin
+resolving the item on `/admin/unmatched` is what makes the next retry land.
+§7.3's 30-day drop bounds it. The alternative — a pending-events table on the
+tracker — is more machinery for the same outcome, and worth revisiting only if
+the unmatched queue turns out to be large in practice.
+
+### Playback events older than five minutes do not touch sessions
+
+Not in the spec. A plugin flushing an hour of backlog after downtime would
+otherwise reopen "now playing" for something that finished long ago. Those
+events are *accepted* (not an error — there is nothing for the plugin to fix)
+and simply not applied. `item.played` is deliberately exempt: a delayed watch
+event is exactly what the outbound queue exists to preserve.
+
+### The session TTL runs on the tracker's clock
+
+§5.3 says `expires_at = now() + 2 minutes`, and `now()` is deliberately the
+tracker's. Deriving it from the event's `occurred_at` would be more precise but
+puts a member's own clock in charge of their session lifetime — a server
+running ten minutes slow would expire every session it opened (C3: the server
+is not trusted).
+
+### `is_rewatch` is computed, never sent
+
+Per §5.3, and it matters for the same reason: a server could otherwise mislabel
+a member's first watch as a rewatch, or suppress the rewatch announcement.
+
 ## Test infrastructure
 
 There was none before M2. `packages/db/src/testing.ts` (`@media-tracker/db/testing`)
