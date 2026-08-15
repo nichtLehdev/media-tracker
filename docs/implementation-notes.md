@@ -319,6 +319,36 @@ the 4xx range as permanent. A payload the tracker understood and refused would
 otherwise wedge the queue behind it indefinitely — §7.3's ordering guarantee
 means nothing behind it would ever be sent either.
 
+### Packaging ships SQLite, trimmed
+
+`Jellyfin.Controller` does not bring `Microsoft.Data.Sqlite`, so the plugin
+ships its own. The native build covers every RID .NET knows about — about 32MB
+of architectures no Jellyfin server runs on — so `build-plugin.sh` keeps only
+linux x64/arm64 (glibc and musl), win-x64 and macOS, taking the package to
+5.5MB.
+
+Worth watching on first install: the Jellyfin *server* also uses
+`Microsoft.Data.Sqlite`, so both copies are present in the process. Managed
+assemblies unify in the default load context and `Batteries_V2.Init()` is
+idempotent, so this should be fine — but if the plugin ever fails to load with
+a SQLite type or native-library conflict, the fix is to mark the package
+reference `ExcludeAssets="runtime"` and rely on the host's copy.
+
+### The snapshot bypasses the outbound queue
+
+Deltas go through the queue (§7.4 says so explicitly). The full snapshot does
+not: it is only meaningful while its `sync_id` is open, and a stale snapshot
+replayed hours later would reconcile against a library that has since changed.
+A failed snapshot is simply abandoned — §6.3.2 guarantees that deletes nothing
+— and the next nightly run starts clean.
+
+### Dolby Vision variants all report as DV
+
+Jellyfin's `VideoRangeType` distinguishes `DOVI`, `DOVIWithHDR10`,
+`DOVIWithHLG` and `DOVIWithSDR`; §5.4 stores one of SDR, HDR10, HDR10+, DV or
+HLG. All four map to `DV`: a player that handles Dolby Vision handles them, and
+the fallback layer is not what decides whether the group can watch together.
+
 ## Test infrastructure
 
 There was none before M2. `packages/db/src/testing.ts` (`@media-tracker/db/testing`)

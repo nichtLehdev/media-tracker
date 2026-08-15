@@ -3,9 +3,12 @@ namespace Jellyfin.Plugin.Tracker;
 using Jellyfin.Plugin.Tracker.Api;
 using Jellyfin.Plugin.Tracker.Configuration;
 using Jellyfin.Plugin.Tracker.Events;
+using Jellyfin.Plugin.Tracker.Library;
+using Jellyfin.Plugin.Tracker.Media;
 using Jellyfin.Plugin.Tracker.Queue;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>S7.1. Registers the plugin's services with Jellyfin's container.</summary>
@@ -26,6 +29,8 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
                 "tracker-queue.db")));
 
         serviceCollection.AddSingleton<LibraryExclusion>();
+        serviceCollection.AddSingleton<MediaProfileReader>();
+        serviceCollection.AddSingleton<LibraryItemBuilder>();
 
         serviceCollection.AddHttpClient<TrackerApiClient>(client =>
         {
@@ -36,6 +41,11 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         });
 
         serviceCollection.AddHostedService<PlaybackEventService>();
+        serviceCollection.AddHostedService<LibraryDeltaService>();
         serviceCollection.AddHostedService<QueueFlushService>();
+
+        // S7.4's nightly snapshot, plus a manual run button in Jellyfin's
+        // scheduled-task UI.
+        serviceCollection.AddSingleton<IScheduledTask, FullLibrarySyncTask>();
     }
 }

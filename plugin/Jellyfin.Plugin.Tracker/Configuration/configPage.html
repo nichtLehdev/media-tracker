@@ -107,6 +107,44 @@
                     : 'Not registered yet.';
             }
 
+            function refreshStatus() {
+                return ApiClient.getJSON(ApiClient.getUrl('Tracker/Status')).then(function (status) {
+                    var parts = ['Queue: ' + status.QueueDepth + ' item(s) waiting.'];
+                    if (status.LastSuccessAt) {
+                        parts.push('Last successful push: ' + new Date(status.LastSuccessAt).toLocaleString() + '.');
+                    }
+                    if (status.LastError) {
+                        parts.push('Last error: ' + status.LastError);
+                    }
+                    document.querySelector('#QueueStatus').textContent = parts.join(' ');
+                }, function () {
+                    document.querySelector('#QueueStatus').textContent = 'Status unavailable.';
+                });
+            }
+
+            document.querySelector('#RegisterButton').addEventListener('click', function () {
+                var url = document.querySelector('#TrackerBaseUrl').value.trim();
+                var code = document.querySelector('#RegistrationCode').value.trim();
+                if (!url || !code) {
+                    Dashboard.alert('Enter the tracker URL and a registration code first.');
+                    return;
+                }
+                Dashboard.showLoadingMsg();
+                ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl('Tracker/Register'),
+                    contentType: 'application/json',
+                    data: JSON.stringify({ TrackerBaseUrl: url, RegistrationCode: code })
+                }).then(function () {
+                    Dashboard.hideLoadingMsg();
+                    document.querySelector('#RegistrationCode').value = '';
+                    return ApiClient.getPluginConfiguration(pluginId).then(applyRegistrationState);
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert('Registration failed. Check the URL and that the code has not expired.');
+                });
+            });
+
             document.querySelector('#TrackerConfigPage').addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
@@ -115,7 +153,7 @@
                     document.querySelector('#ReportMediaProfile').checked = config.ReportMediaProfile !== false;
                     document.querySelector('#SeerrRelayEnabled').checked = !!config.SeerrRelayEnabled;
                     applyRegistrationState(config);
-                    return loadLibraries(config);
+                    return loadLibraries(config).then(refreshStatus);
                 }).then(Dashboard.hideLoadingMsg, Dashboard.hideLoadingMsg);
             });
 

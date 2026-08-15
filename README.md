@@ -13,7 +13,7 @@ trust boundary) explain most of the decisions in this code.
 | Milestone | State | Notes |
 |---|---|---|
 | M1 Foundation | **done** | monorepo, schema §5.1–5.4, Discord auth + guild check, TMDB client, server registration, account linking |
-| M2 Plugin and ingest | **in progress** | server side complete — ingest (§6.2), media matching (§9), library deltas and snapshots (§6.3), the mass-removal safety valve (§7.6), session expiry/archiving. Remaining: the .NET plugin (§7) |
+| M2 Plugin and ingest | **code complete** | not yet verified against a real Jellyfin server or TMDB — see "Testing M2" |
 | M3 Discord output | not started | |
 | M4 Website | not started | M1 ships placeholder pages only |
 | M5 Import | not started | |
@@ -28,7 +28,7 @@ apps/worker     pg-boss consumers (empty until M2)
 packages/db     Drizzle schema, migrations, seed
 packages/contracts  Zod schemas — the source of truth for every wire format
 packages/tmdb   TMDB client, media resolution (§9) and caching
-plugin/         Jellyfin.Plugin.Tracker (.NET 8) — event capture, outbound queue
+plugin/         Jellyfin.Plugin.Tracker (.NET 8) — events, queue, library sync
 docker/         Dockerfile and compose stack
 ```
 
@@ -115,6 +115,42 @@ cd plugin && dotnet test
 Integration tests need the development Postgres from above to be running and
 migrated; they create and drop their own schema per file, so they never touch
 your development data. Without `DATABASE_URL` they skip rather than fail.
+
+## Testing M2
+
+Everything in M2 is written and unit-tested, but none of it has run against a
+real Jellyfin server or the real TMDB API. The §18 acceptance criteria need
+both.
+
+Build the plugin:
+
+```bash
+cd plugin && ./build-plugin.sh 1.0.0.0
+```
+
+That writes `plugin/dist/tracker_<version>.zip` and prints the manifest entry
+for it. To install manually, unzip it into Jellyfin's `plugins/Tracker/`
+directory and restart. To install by repository, add the release to
+`apps/web/src/app/plugin/releases.json`, serve the zip at
+`$PUBLIC_BASE_URL/plugin/<file>`, and point Jellyfin at
+`$PUBLIC_BASE_URL/plugin/manifest.json`.
+
+Then, in Jellyfin's plugin settings: enter the tracker URL, paste a
+registration code generated on `/settings/servers`, and press Register. The
+plugin reports its local accounts; invite the ones that belong to members.
+
+The four acceptance criteria to work through, in order of how much they would
+hurt to get wrong:
+
+1. **Unmount the media directory and force a Jellyfin scan.** The removals must
+   be quarantined, not applied — `/settings/servers` should offer them for
+   confirmation rather than the library going empty. This is the one that
+   matters; everything else is recoverable.
+2. Watch an episode: a `watch_events` row within 30s, and a live
+   `playback_sessions` row while it plays.
+3. Stop the tracker for ten minutes mid-watch. Nothing may be lost — the
+   plugin's SQLite queue holds it and flushes on reconnect.
+4. Add a file, then delete it. Reflected within about two minutes.
 
 ## Database changes
 

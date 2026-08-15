@@ -145,6 +145,59 @@ public sealed class TrackerApiClient
         }
     }
 
+    /// <summary>
+    /// Posts and deserialises the response. Returns null when the tracker
+    /// refuses, which for S6.3.2's `start` is the ordinary "this Jellyfin
+    /// account is not linked" case rather than a failure.
+    /// </summary>
+    /// <typeparam name="T">Response type.</typeparam>
+    /// <param name="path">Endpoint path.</param>
+    /// <param name="json">Request body.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The response, or null.</returns>
+    public async Task<T?> PostForAsync<T>(
+        string path,
+        string json,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        var configuration = _configuration();
+        if (!configuration.IsRegistered)
+        {
+            return null;
+        }
+
+        using var message = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(new Uri(Normalise(configuration.TrackerBaseUrl)), path))
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        message.Headers.Authorization =
+            new AuthenticationHeaderValue("Bearer", configuration.ServerSecret);
+
+        try
+        {
+            using var response = await _http.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return await response.Content
+                .ReadFromJsonAsync<T>(SerializerOptions, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+            return null;
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Ensures the base URL ends in a slash so relative paths resolve.</summary>
     private static string Normalise(string baseUrl) =>
         baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/";

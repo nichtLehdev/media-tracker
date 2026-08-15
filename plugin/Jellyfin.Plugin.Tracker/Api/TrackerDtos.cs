@@ -57,7 +57,7 @@ public sealed class ProviderIds
 }
 
 /// <summary>S6.2 item. Never carries a path or filename (S15).</summary>
-public sealed class IngestItem
+public class IngestItem
 {
     /// <summary>Jellyfin's own item id.</summary>
     [JsonPropertyName("jellyfin_item_id")]
