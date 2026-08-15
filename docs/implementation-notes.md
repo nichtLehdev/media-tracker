@@ -286,6 +286,39 @@ linking UI.
 leaves the existing profile alone rather than nulling it: losing a good profile
 is worse than holding a slightly stale one.
 
+## The Jellyfin plugin (§7)
+
+Targets `net8.0` for Jellyfin 10.10's ABI against `Jellyfin.Controller` 10.10.7,
+built with whatever SDK is installed (reference assemblies come from NuGet). The
+test project targets `net10.0` and references the net8.0 library, so running the
+tests does not need a .NET 8 runtime installed.
+
+`Microsoft.Data.Sqlite` 8.0.11 pulls `SQLitePCLRaw` 2.1.6, which carries
+GHSA-2m69-gcr7-jv3q — an advisory covering everything up to 2.1.11. Pinned
+forward to 2.1.13; `dotnet list package --vulnerable` is clean.
+
+### Queue writes are synchronous, deliberately
+
+§7.3 says never to block a Jellyfin event handler on network IO, and the flush
+loop honours that. The SQLite append, though, happens inline on the event
+thread: a WAL-mode insert is sub-millisecond, and handing off to a background
+writer would open a window in which a crash loses the very events the table
+exists to protect.
+
+### `item.played` carries no position
+
+Jellyfin has already applied the member's own completion threshold before
+raising `PlaybackFinished`, and commonly resets the stored position on finish.
+Reporting `position == runtime` to force `progress_pct` to 100 would be
+inventing data, so the field is left null and the event itself is the signal.
+
+### A refused payload is dropped, not retried forever
+
+The flush loop treats 401, 408, 429 and 5xx as retryable and everything else in
+the 4xx range as permanent. A payload the tracker understood and refused would
+otherwise wedge the queue behind it indefinitely — §7.3's ordering guarantee
+means nothing behind it would ever be sent either.
+
 ## Test infrastructure
 
 There was none before M2. `packages/db/src/testing.ts` (`@media-tracker/db/testing`)

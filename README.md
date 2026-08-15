@@ -28,7 +28,7 @@ apps/worker     pg-boss consumers (empty until M2)
 packages/db     Drizzle schema, migrations, seed
 packages/contracts  Zod schemas — the source of truth for every wire format
 packages/tmdb   TMDB client, media resolution (§9) and caching
-plugin/         Jellyfin.Plugin.Tracker (.NET 8) — M2
+plugin/         Jellyfin.Plugin.Tracker (.NET 8) — event capture, outbound queue
 docker/         Dockerfile and compose stack
 ```
 
@@ -102,6 +102,14 @@ The unit and integration suites run separately:
 
 ```bash
 pnpm test
+```
+
+The Jellyfin plugin is a separate .NET solution with its own tests. It targets
+`net8.0` for Jellyfin 10.10's ABI; the test project targets `net10.0` and
+references it, so a .NET 8 runtime is not needed to run them:
+
+```bash
+cd plugin && dotnet test
 ```
 
 Integration tests need the development Postgres from above to be running and

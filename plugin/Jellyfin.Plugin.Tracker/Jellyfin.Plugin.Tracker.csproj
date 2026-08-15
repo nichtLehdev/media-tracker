@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Jellyfin 10.10 runs on .NET 8; the plugin must match its ABI. The
+         installed SDK is newer, which is fine: the reference assemblies come
+         from NuGet. -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jellyfin.Controller" Version="10.10.7" />
+    <PackageReference Include="Jellyfin.Model" Version="10.10.7" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <!-- Microsoft.Data.Sqlite 8.0.11 pulls SQLitePCLRaw 2.1.6, which carries
+         GHSA-2m69-gcr7-jv3q, which affects everything up to 2.1.11. Pinned
+         forward past it. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration/configPage.html" />
+  </ItemGroup>
+
+</Project>

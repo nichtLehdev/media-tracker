@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Tracker</title>
+</head>
+<body>
+<div id="TrackerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-controller="__plugin/Tracker">
+    <div data-role="content">
+        <div class="content-primary">
+
+            <form id="TrackerConfigForm">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Connection</h2>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="TrackerBaseUrl">Tracker URL</label>
+                        <input id="TrackerBaseUrl" name="TrackerBaseUrl" type="url" is="emby-input"
+                               placeholder="https://tracker.example.com" />
+                        <div class="fieldDescription">
+                            The tracker never connects to this server. Everything is pushed from here.
+                        </div>
+                    </div>
+
+                    <div id="RegistrationBlock">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="RegistrationCode">Registration code</label>
+                            <input id="RegistrationCode" type="text" is="emby-input" autocomplete="off" />
+                            <div class="fieldDescription">
+                                Generate this on the tracker's server settings page. It is single-use
+                                and expires after 15 minutes.
+                            </div>
+                        </div>
+                        <button id="RegisterButton" is="emby-button" type="button" class="raised block">
+                            <span>Register this server</span>
+                        </button>
+                    </div>
+
+                    <p id="RegistrationStatus" class="fieldDescription"></p>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Reporting</h2>
+
+                    <label class="checkboxContainer">
+                        <input id="Enabled" name="Enabled" type="checkbox" is="emby-checkbox" />
+                        <span>Report watch activity and library contents</span>
+                    </label>
+
+                    <label class="checkboxContainer">
+                        <input id="ReportMediaProfile" name="ReportMediaProfile" type="checkbox" is="emby-checkbox" />
+                        <span>Include technical details (resolution, HDR, audio and subtitle languages)</span>
+                    </label>
+                    <div class="fieldDescription">
+                        Needed for language-aware screening readiness. Availability still works without it.
+                    </div>
+
+                    <label class="checkboxContainer">
+                        <input id="SeerrRelayEnabled" name="SeerrRelayEnabled" type="checkbox" is="emby-checkbox" />
+                        <span>Relay requests to this network's Jellyseerr/Overseerr</span>
+                    </label>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Excluded libraries</h2>
+                    <div class="fieldDescription" style="margin-bottom:1em;">
+                        Excluded libraries are never transmitted &mdash; not their contents, not their
+                        names, not the fact that they exist. This is where private material belongs.
+                    </div>
+                    <div id="LibraryList"></div>
+                </div>
+
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Status</h2>
+                    <p id="QueueStatus" class="fieldDescription">&mdash;</p>
+                </div>
+
+                <button is="emby-button" type="submit" class="raised button-submit block">
+                    <span>Save</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = '8f1a2c4e-5b3d-4f6a-9c8e-1d2b3a4c5e6f';
+
+            function loadLibraries(config) {
+                return ApiClient.getJSON(ApiClient.getUrl('Library/VirtualFolders')).then(function (folders) {
+                    var host = document.querySelector('#LibraryList');
+                    host.innerHTML = folders.map(function (folder) {
+                        var checked = (config.ExcludedLibraryIds || []).indexOf(folder.ItemId) !== -1;
+                        return '<label class="checkboxContainer">' +
+                            '<input type="checkbox" is="emby-checkbox" class="chkLibrary" ' +
+                            'data-id="' + folder.ItemId + '"' + (checked ? ' checked' : '') + ' />' +
+                            '<span>' + folder.Name + '</span></label>';
+                    }).join('');
+                });
+            }
+
+            function applyRegistrationState(config) {
+                var registered = !!(config.ServerId && config.ServerSecret);
+                document.querySelector('#RegistrationBlock').style.display = registered ? 'none' : '';
+                document.querySelector('#RegistrationStatus').textContent = registered
+                    ? 'Registered as server ' + config.ServerId + '.'
+                    : 'Not registered yet.';
+            }
+
+            document.querySelector('#TrackerConfigPage').addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    document.querySelector('#TrackerBaseUrl').value = config.TrackerBaseUrl || '';
+                    document.querySelector('#Enabled').checked = config.Enabled !== false;
+                    document.querySelector('#ReportMediaProfile').checked = config.ReportMediaProfile !== false;
+                    document.querySelector('#SeerrRelayEnabled').checked = !!config.SeerrRelayEnabled;
+                    applyRegistrationState(config);
+                    return loadLibraries(config);
+                }).then(Dashboard.hideLoadingMsg, Dashboard.hideLoadingMsg);
+            });
+
+            document.querySelector('#TrackerConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.TrackerBaseUrl = document.querySelector('#TrackerBaseUrl').value.trim();
+                    config.Enabled = document.querySelector('#Enabled').checked;
+                    config.ReportMediaProfile = document.querySelector('#ReportMediaProfile').checked;
+                    config.SeerrRelayEnabled = document.querySelector('#SeerrRelayEnabled').checked;
+                    config.ExcludedLibraryIds = Array.prototype.slice
+                        .call(document.querySelectorAll('.chkLibrary'))
+                        .filter(function (el) { return el.checked; })
+                        .map(function (el) { return el.getAttribute('data-id'); });
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function (result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                });
+                return false;
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
