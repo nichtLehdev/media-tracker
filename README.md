@@ -128,12 +128,27 @@ Build the plugin:
 cd plugin && ./build-plugin.sh 1.0.0.0
 ```
 
-That writes `plugin/dist/tracker_<version>.zip` and prints the manifest entry
-for it. To install manually, unzip it into Jellyfin's `plugins/Tracker/`
-directory and restart. To install by repository, add the release to
-`apps/web/src/app/plugin/releases.json`, serve the zip at
-`$PUBLIC_BASE_URL/plugin/<file>`, and point Jellyfin at
-`$PUBLIC_BASE_URL/plugin/manifest.json`.
+That writes `plugin/dist/tracker_<version>.zip` and prints its checksum. To
+install manually, unzip it into Jellyfin's `plugins/Tracker/` directory and
+restart.
+
+For repository install, publish it instead:
+
+```bash
+cd plugin && ./build-plugin.sh 1.0.0.0 --publish
+```
+
+That copies the zip to `apps/web/public/plugin/` and records it in
+`apps/web/public/plugin/manifest.json`, which is served at
+`$PUBLIC_BASE_URL/plugin/manifest.json` — the URL a member adds once under
+Dashboard → Plugins → Repositories. Jellyfin verifies the download against the
+checksum in the manifest, so the two are always written together rather than
+edited by hand. Override the advertised host with
+`BASE_URL=https://... ./build-plugin.sh`.
+
+The manifest is committed; the zips are not, because each is about 6MB and they
+are build artifacts. **Run `--publish` before building the Docker image**, or
+the manifest will advertise a URL that 404s.
 
 Then, in Jellyfin's plugin settings: enter the tracker URL, paste a
 registration code generated on `/settings/servers`, and press Register. The

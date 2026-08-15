@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # Packages the plugin for installation (S7.8).
 #
-# Produces dist/tracker_<version>.zip plus the checksum the repository manifest
-# needs. Jellyfin verifies that checksum on install, so it is generated here
-# rather than written by hand.
+# Without --publish this only builds dist/tracker_<version>.zip and prints its
+# checksum. With --publish it also copies the zip to where the web app serves
+# it and records it in the manifest, which is the pair Jellyfin needs: it
+# verifies the download against the checksum in the manifest.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 VERSION="${1:-1.0.0.0}"
+PUBLISH="${2:-}"
+# Absolute, because Jellyfin fetches the manifest and the zip separately.
+BASE_URL="${BASE_URL:-https://tracker.lehdev.de}"
+
 OUT="dist"
 STAGE="$OUT/stage"
+SERVED="../apps/web/public/plugin"
 
 rm -rf "$OUT"
 mkdir -p "$STAGE"
@@ -47,19 +53,26 @@ fi
 ( cd "$STAGE" && zip -qr "../tracker_${VERSION}.zip" . )
 rm -rf "$STAGE"
 
-CHECKSUM=$(md5 -q "$OUT/tracker_${VERSION}.zip" 2>/dev/null || md5sum "$OUT/tracker_${VERSION}.zip" | cut -d' ' -f1)
+CHECKSUM=$(md5 -q "$OUT/tracker_${VERSION}.zip" 2>/dev/null \
+  || md5sum "$OUT/tracker_${VERSION}.zip" | cut -d' ' -f1)
 
 echo "built  $OUT/tracker_${VERSION}.zip"
 echo "md5    $CHECKSUM"
-echo
-echo "Manifest entry:"
-cat <<JSON
-{
-  "version": "$VERSION",
-  "changelog": "",
-  "targetAbi": "10.10.0.0",
-  "sourceUrl": "https://tracker.example.com/plugin/tracker_${VERSION}.zip",
-  "checksum": "$CHECKSUM",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-}
-JSON
+
+if [ "$PUBLISH" != "--publish" ]; then
+  echo
+  echo "Not published. Re-run with --publish to copy the zip into"
+  echo "apps/web/public/plugin/ and record it in manifest.json."
+  exit 0
+fi
+
+mkdir -p "$SERVED"
+cp "$OUT/tracker_${VERSION}.zip" "$SERVED/"
+python3 update-manifest.py \
+  "$SERVED/manifest.json" \
+  "$VERSION" \
+  "$CHECKSUM" \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "$BASE_URL"
+
+echo "published to apps/web/public/plugin/"

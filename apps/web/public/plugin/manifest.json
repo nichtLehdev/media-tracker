@@ -1,0 +1,20 @@
+[
+  {
+    "guid": "8f1a2c4e-5b3d-4f6a-9c8e-1d2b3a4c5e6f",
+    "name": "Tracker",
+    "description": "Reports watch activity and library inventory to a self-hosted media tracker.",
+    "overview": "Watch tracking for a Discord community.",
+    "owner": "media-tracker",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "First release: watch events, library sync, media profiles.",
+        "targetAbi": "10.10.0.0",
+        "sourceUrl": "https://tracker.lehdev.de/plugin/tracker_1.0.0.0.zip",
+        "checksum": "caa9c1249fc68141c5584725c5fcfe1f",
+        "timestamp": "2026-08-15T10:26:06Z"
+      }
+    ]
+  }
+]
