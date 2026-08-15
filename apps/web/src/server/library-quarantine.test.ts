@@ -238,6 +238,50 @@ describe.skipIf(!hasTestDatabase())('applyRemovals (S7.6)', () => {
     expect(await countEntries()).toBe(30);
   });
 
+  it('ignores entries belonging to another member on the same server', async () => {
+    // The ownership filter here is the real boundary, not the one in the
+    // caller: a delta for Anna resolves ids by (server, item) and must not be
+    // able to reach Bob's rows on the same server (C2).
+    const bobId = newId();
+    await db.insert(schema.users).values({
+      id: bobId,
+      discordId: '100000000000000002',
+      displayName: 'Bob',
+    });
+    const mine = await seedLibrary(100);
+    const bobMedia = newId();
+    const bobEntry = newId();
+    await db.insert(schema.mediaItems).values({
+      id: bobMedia,
+      kind: 'movie',
+      tmdbId: 700_001,
+      title: "Bob's Film",
+    });
+    await db.insert(schema.libraryEntries).values({
+      id: bobEntry,
+      userId: bobId,
+      serverId,
+      mediaItemId: bobMedia,
+      jellyfinItemId: 'jf-bob-1',
+      lastConfirmedAt: T0,
+    });
+
+    const outcome = await applyRemovals(db, {
+      serverId,
+      userId,
+      entryIds: [...mine.slice(0, 3), bobEntry],
+      source: 'delta',
+      now: T0,
+    });
+
+    expect(outcome.removed).toBe(3);
+    const survivors = await db
+      .select()
+      .from(schema.libraryEntries)
+      .where(eq(schema.libraryEntries.userId, bobId));
+    expect(survivors).toHaveLength(1);
+  });
+
   it('is a no-op for an empty removal set', async () => {
     await seedLibrary(10);
 

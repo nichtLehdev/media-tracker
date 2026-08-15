@@ -13,7 +13,7 @@ trust boundary) explain most of the decisions in this code.
 | Milestone | State | Notes |
 |---|---|---|
 | M1 Foundation | **done** | monorepo, schema §5.1–5.4, Discord auth + guild check, TMDB client, server registration, account linking |
-| M2 Plugin and ingest | **in progress** | ingest (§6.2), media matching (§9), the mass-removal safety valve (§7.6) and session expiry/archiving done; next: library delta/snapshot endpoints, then the .NET plugin |
+| M2 Plugin and ingest | **in progress** | server side complete — ingest (§6.2), media matching (§9), library deltas and snapshots (§6.3), the mass-removal safety valve (§7.6), session expiry/archiving. Remaining: the .NET plugin (§7) |
 | M3 Discord output | not started | |
 | M4 Website | not started | M1 ships placeholder pages only |
 | M5 Import | not started | |

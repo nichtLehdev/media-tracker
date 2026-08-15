@@ -230,6 +230,62 @@ is not trusted).
 Per §5.3, and it matters for the same reason: a server could otherwise mislabel
 a member's first watch as a rewatch, or suppress the rewatch announcement.
 
+## Library deltas and snapshots (§6.3)
+
+`apps/web/src/server/library.ts` behind the four §6.3 endpoints. Both paths
+funnel their removals through `applyRemovals`, which is why the safety valve is
+a separate module.
+
+### `library_entries_identity` had to change — §5.4 is wrong
+
+**This is a deviation from a binding section, raised here.** §5.4 specifies:
+
+```sql
+CREATE UNIQUE INDEX library_entries_identity ON library_entries (server_id, jellyfin_item_id);
+```
+
+That cannot hold on a server with more than one member. §7.4 runs the snapshot
+*per local Jellyfin user*, so a film on LarsFlix arrives once for each linked
+member with the same `jellyfin_item_id` — and the second insert collides. The
+case it breaks is the one C2 exists for.
+
+Changed to `(server_id, user_id, jellyfin_item_id)`. The index's stated purpose
+still holds: §6.3.1 removals carry only a Jellyfin item id, and a delta also
+carries `jellyfin_user_id`, so the row is still found without re-resolving
+metadata. Migration `0003`.
+
+### `library_syncs`
+
+Not in §5, but §6.3.2 hands out a `sync_id` at `start` and `finish` needs to
+know when the run began. State is `open | finished | abandoned`; starting a new
+run abandons any open one for that (server, member) rather than resuming it,
+because a stale run's confirmations predate the new start and would read as
+removals. Abandoning deletes nothing, per §6.3.2.
+
+### Two Jellyfin items for one title
+
+`library_entries_logical` allows one row per title per member per server, but a
+member can hold the same film as two Jellyfin items — a `Movies` and a
+`Movies 4K` library. The second is a no-op rather than an error: the title is
+already available to them. The cost is that removing the recorded copy drops
+availability until the next snapshot restores it from the other, which is
+exactly the silent gap the snapshot exists to repair (§7.4).
+
+### An unlinked account is refused at `start`, not after 4000 items
+
+§7.4 sends every local Jellyfin account because the plugin cannot know which are
+linked, and §6.3.2 says the tracker discards the unlinked ones. Discovering that
+at `start` is the same outcome for a fraction of the traffic, so `start` and
+`delta` return 409 `unlinked_account` — a "skip this user", not a "retry". The
+account row is still upserted first, so the member appears in the owner's
+linking UI.
+
+### Profile columns survive the reporting toggle
+
+§7.7's `ReportMediaProfile` opt-out omits `media`. An update that omits it
+leaves the existing profile alone rather than nulling it: losing a good profile
+is worse than holding a slightly stale one.
+
 ## Test infrastructure
 
 There was none before M2. `packages/db/src/testing.ts` (`@media-tracker/db/testing`)

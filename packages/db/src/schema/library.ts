@@ -50,7 +50,18 @@ export const libraryEntries = pgTable(
   (t) => [
     // A primary key cannot contain an expression in PostgreSQL, hence the
     // surrogate id plus these two unique indexes.
-    uniqueIndex('library_entries_identity').on(t.serverId, t.jellyfinItemId),
+    //
+    // S5.4 writes this one as (server_id, jellyfin_item_id). That cannot hold
+    // on a server with more than one member: S7.4 sends the library once per
+    // local Jellyfin user, so the same item id arrives once per member and the
+    // second insert collides -- on LarsFlix, which is the entire reason C2
+    // exists. Scoped by user instead. Removals still resolve without
+    // metadata, because a delta carries jellyfin_user_id (S6.3.1).
+    uniqueIndex('library_entries_identity').on(
+      t.serverId,
+      t.userId,
+      t.jellyfinItemId,
+    ),
     uniqueIndex('library_entries_logical').on(
       t.userId,
       t.serverId,
@@ -137,5 +148,43 @@ export const librarySyncQuarantine = pgTable(
     index('library_sync_quarantine_pending')
       .on(t.serverId)
       .where(sql`resolved_at IS NULL`),
+  ],
+);
+
+/**
+ * Not in §5. §6.3.2 hands out a `sync_id` at `start` and requires `finish` to
+ * know when the sync began, so the run needs a row of its own.
+ *
+ * The state matters as much as the timestamps: §6.3.2 is explicit that a sync
+ * which never reaches `finish` must not delete anything, because a crashed
+ * snapshot would otherwise wipe a member's library.
+ */
+export const librarySyncs = pgTable(
+  'library_syncs',
+  {
+    id: uuid().primaryKey(),
+    serverId: uuid()
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id),
+    /** Kept for the owner's UI: which Jellyfin account this run covered. */
+    jellyfinUserId: text().notNull(),
+    estimatedCount: integer(),
+    state: text().notNull().default('open'),
+    itemsSeen: integer().notNull().default(0),
+    unmatchedCount: integer().notNull().default(0),
+    startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    check(
+      'library_syncs_state_check',
+      sql`${t.state} IN ('open','finished','abandoned')`,
+    ),
+    index('library_syncs_open')
+      .on(t.serverId, t.userId)
+      .where(sql`state = 'open'`),
   ],
 );

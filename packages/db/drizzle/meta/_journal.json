@@ -22,6 +22,13 @@
       "when": 1786749635891,
       "tag": "0002_chilly_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786752213072,
+      "tag": "0003_open_naoko",
+      "breakpoints": true
     }
   ]
 }

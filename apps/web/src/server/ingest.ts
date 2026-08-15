@@ -10,9 +10,9 @@ import {
   isNull,
   newId,
   schema,
-  sql,
   type Database,
 } from '@media-tracker/db';
+import { recordUnmatched } from './unmatched';
 
 /**
  * S6.2. The plugin pushes batches here; this is where a raw jellyfin_user_id
@@ -341,43 +341,5 @@ async function upsertSession(
         updatedAt: occurredAt,
         expiresAt,
       },
-    });
-}
-
-/**
- * S9 step 5. Never guess -- record it and let the owner resolve it on
- * /admin/unmatched. `raw` deliberately carries no path or filename (S6.3.3).
- */
-async function recordUnmatched(
-  db: Database,
-  serverId: string,
-  item: IngestItem,
-  now: Date,
-): Promise<void> {
-  await db
-    .insert(schema.unmatchedItems)
-    .values({
-      id: newId(),
-      serverId,
-      jellyfinItemId: item.jellyfin_item_id,
-      raw: {
-        item_type: item.item_type,
-        name: item.name,
-        production_year: item.production_year ?? null,
-        series_name: item.series_name ?? null,
-        season: item.season ?? null,
-        episode: item.episode ?? null,
-        provider_ids: item.provider_ids,
-        series_provider_ids: item.series_provider_ids,
-      },
-      firstSeenAt: now,
-      lastSeenAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        schema.unmatchedItems.serverId,
-        schema.unmatchedItems.jellyfinItemId,
-      ],
-      set: { lastSeenAt: now, raw: sql.raw('excluded.raw') },
     });
 }
